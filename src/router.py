@@ -36,7 +36,7 @@ def load_and_process_crime_data():
         df_crimes = pd.DataFrame(crime_documents)
         df_crimes['LOGRADOURO_NORMALIZADO'] = df_crimes['LOGRADOURO'].apply(normalize_street_name_func)
         df_crimes.dropna(subset=['LOGRADOURO_NORMALIZADO', 'total_ocorrencias'], inplace=True)
-        
+
         crime_counts = df_crimes.set_index('LOGRADOURO_NORMALIZADO')['total_ocorrencias'].fillna(0).to_dict()
 
         print(f"Dados de ocorrências processados. {len(crime_counts)} ruas com contagem de crimes.")
@@ -81,7 +81,7 @@ def calculate_safe_route(
 
     for u, v, k, data in G_filtered.edges(keys=True, data=True):
         street_names_from_osm = data.get('name')
-        
+
         if isinstance(street_names_from_osm, str):
             street_names_list = [street_names_from_osm]
         elif isinstance(street_names_from_osm, list):
@@ -95,14 +95,14 @@ def calculate_safe_route(
         for name_osm in street_names_list:
             normalized_name_osm = normalize_street_name_func(name_osm)
             crime_count_from_db = _crime_data.get(normalized_name_osm, 0)
-            
+
             if crime_count_from_db > highest_crime_count_for_edge:
                 highest_crime_count_for_edge = crime_count_from_db
 
             if crime_count_from_db > max_crime_occurrences:
                 should_remove_this_edge = True
                 break 
-        
+
         if should_remove_this_edge:
             edges_to_remove.append((u, v, k))
             removed_edges_details.append({"names": street_names_list, "crime_count": highest_crime_count_for_edge, "original_edge_id": (u,v,k)})
@@ -116,14 +116,14 @@ def calculate_safe_route(
     try:
         route_nodes = nx.shortest_path(G_filtered, orig_node, dest_node, weight='travel_time')
         gdf_route_edges = ox.routing.route_to_gdf(_graph, route_nodes, weight='travel_time')
-        
+
         route_street_names = []
         for name_data in gdf_route_edges['name'].tolist():
             if isinstance(name_data, str):
                 route_street_names.append(name_data)
             elif isinstance(name_data, list):
                 route_street_names.extend(name_data)
-        
+
         cleaned_street_names = []
         if route_street_names:
             cleaned_street_names.append(route_street_names[0])
@@ -131,6 +131,15 @@ def calculate_safe_route(
                 if route_street_names[i] != route_street_names[i-1]:
                     cleaned_street_names.append(route_street_names[i])
 
+        route_street_info = []
+        for nome in cleaned_street_names:
+            nome_normalizado = normalize_street_name_func(nome)
+            ocorrencias = _crime_data.get(nome_normalizado, 0)
+            route_street_info.append({
+                "nome": nome,
+                "ocorrencias": ocorrencias,
+                "periodo": "N/A"
+            })
 
         if orig_node in _graph.nodes and dest_node in _graph.nodes:
             center_lat = (_graph.nodes[orig_node]['y'] + _graph.nodes[dest_node]['y']) / 2
@@ -149,7 +158,7 @@ def calculate_safe_route(
             ).add_to(route_map)
 
             route_coords = [( _graph.nodes[node_id]['y'], _graph.nodes[node_id]['x']) for node_id in route_nodes]
-            
+
             folium.PolyLine(
                 locations=route_coords, color="blue", weight=5, opacity=0.7, tooltip="Rota Segura"
             ).add_to(route_map)
@@ -158,7 +167,7 @@ def calculate_safe_route(
                 for removed_detail in removed_edges_details:
                     u, v, k = removed_detail['original_edge_id']
                     edge_data_k = _graph.get_edge_data(u, v, k)
-                    
+
                     if edge_data_k and 'geometry' in edge_data_k:
                         if edge_data_k['geometry'].geom_type == 'LineString':
                             coords = [(lat, lon) for lon, lat in edge_data_k['geometry'].coords]
@@ -172,10 +181,11 @@ def calculate_safe_route(
             map_html = route_map._repr_html_()
         else:
             map_html = "Não foi possível gerar o mapa: Nós de origem/destino inválidos."
-        
+
         return {
             "route_found": True,
             "route_street_names": cleaned_street_names,
+            "route_street_info": route_street_info,
             "route_map_html": map_html,
             "message": "Rota segura encontrada!"
         }
